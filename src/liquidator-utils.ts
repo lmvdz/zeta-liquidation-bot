@@ -175,6 +175,7 @@ export function liquidateAccount(client: Client, programAccount: anchor.ProgramA
             let liquidateIx = instructions.liquidateIx(client.publicKey, client.marginAccountAddress, Exchange.markets.markets[position.marketIndex].address, liquidateeKey, position.liquidationSize)
             transaction.add(liquidateIx);
             // close the transfered position in the same transaction
+            // does liquidationSize and price need to be converted to correct decimals?
             let closePositionIx = instructions.placeOrderIx(position.marketIndex, position.firstOrderInBook.price, position.liquidationSize, position.closePositionSide, 0, client.marginAccountAddress, client.publicKey, client.openOrdersAccounts[position.marketIndex], client.whiteListTradingFeesAddress)
             transaction.add(closePositionIx);
         })

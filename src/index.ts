@@ -147,7 +147,6 @@ export function subscribeAllMarginAccounts() {
       await findLiquidatableAccounts(accountsAtRisk);
   
     await liquidateAccounts(client, liquidatableAccounts);
-  
     // Display the latest client state.
     await client.updateState();
     let clientMarginAccountState = Exchange.riskCalculator.getMarginAccountState(
