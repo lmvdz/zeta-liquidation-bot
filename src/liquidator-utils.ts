@@ -66,7 +66,7 @@ export async function findLiquidatableAccounts(
   return liquidatableAccounts;
 }
 
-export async function cancalActiveOrders(client: Client, accountAtRisk: anchor.ProgramAccount) : Promise<Array<string>> {
+export async function cancelActiveOrders(client: Client, accountAtRisk: anchor.ProgramAccount) : Promise<Array<string>> {
     let marginAccount = accountAtRisk.account as programTypes.MarginAccount;
 
     return Promise.all(marginAccount.positions.filter(position => {
@@ -116,7 +116,7 @@ export async function cancelAllActiveOrders(
   accountsAtRisk: anchor.ProgramAccount[]
 ) : Promise<Array<Array<string>>> {
     return Promise.all(accountsAtRisk.map(async (accountAtRisk) => {
-      return await cancalActiveOrders(client, accountAtRisk);
+      return await cancelActiveOrders(client, accountAtRisk);
     }))
 }
 
@@ -126,6 +126,7 @@ export async function liquidateAccount(client: Client, programAccount: anchor.Pr
 
     // update the state of the client with newest available margin
     await client.updateState()
+
     let clientState = Exchange.riskCalculator.getMarginAccountState(
         client.marginAccount
     );
