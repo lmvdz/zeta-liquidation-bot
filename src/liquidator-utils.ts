@@ -1,8 +1,7 @@
 import * as anchor from "@project-serum/anchor";
 import { Transaction } from "@solana/web3.js";
-import { constants, Client, Exchange, programTypes, utils } from "@zetamarkets/sdk";
-import * as instructions from "@zetamarkets/sdk/dist/program-instructions";
-import { Side } from "@zetamarkets/sdk/dist/types";
+import { constants, Client, Exchange, programTypes, utils, instructions } from "@zetamarkets/sdk";
+import { Side } from "@zetamarkets/sdk/dist/types.js";
 
 export async function findAccountsAtRisk(
   accounts: anchor.ProgramAccount[]
