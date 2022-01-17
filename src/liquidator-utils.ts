@@ -155,7 +155,7 @@ export async function liquidateAccount(client: Client, programAccount: anchor.Pr
         // first order in book
         // margin constrained size (of liquidator's account)
         // size of the position which needs to be liquidated
-        const liquidationSize = Math.min(firstOrderInBook.size, Math.min(marginConstrainedSize, Math.abs(position.position.toNumber())));
+        const liquidationSize = Math.min(utils.convertDecimalToNativeLotSize(firstOrderInBook.size), Math.min(marginConstrainedSize, Math.abs(position.position.toNumber())));
         return {
             ...position, 
             marginConstrainedSize, 
@@ -176,7 +176,7 @@ export async function liquidateAccount(client: Client, programAccount: anchor.Pr
         transaction.add(liquidateIx);
         // close the transfered position in the same transaction
         // does liquidationSize and price need to be converted to correct decimals?
-        let closePositionIx = instructions.placeOrderIx(position.marketIndex, position.firstOrderInBook.price, position.liquidationSize, position.closePositionSide, 0, client.marginAccountAddress, client.publicKey, client.openOrdersAccounts[position.marketIndex], client.whiteListTradingFeesAddress)
+        let closePositionIx = instructions.placeOrderIx(position.marketIndex, utils.convertDecimalToNativeInteger(position.firstOrderInBook.price), position.liquidationSize, position.closePositionSide, 0, client.marginAccountAddress, client.publicKey, client.openOrdersAccounts[position.marketIndex], client.whiteListTradingFeesAddress)
         transaction.add(closePositionIx);
         // send the liquidation + close position transaction
         let output;
