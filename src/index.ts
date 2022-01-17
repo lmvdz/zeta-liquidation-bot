@@ -12,7 +12,7 @@ import {
     cancelAllActiveOrders,
     findAccountsAtRisk,
     findLiquidatableAccounts,
-    liquidateAccounts,
+    liquidateAccountsV2,
 } from "./liquidator-utils.js";
 
 import * as anchor from "@project-serum/anchor";
@@ -146,7 +146,7 @@ export function subscribeAllMarginAccounts() {
     let liquidatableAccounts: anchor.ProgramAccount[] =
       await findLiquidatableAccounts(accountsAtRisk);
   
-    await liquidateAccounts(client, liquidatableAccounts);
+    await liquidateAccountsV2(client, liquidatableAccounts);
     // Display the latest client state.
     await client.updateState();
     let clientMarginAccountState = Exchange.riskCalculator.getMarginAccountState(
