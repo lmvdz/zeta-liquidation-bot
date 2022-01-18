@@ -144,7 +144,7 @@ export async function liquidateAccount(client: Client, programAccount: anchor.Pr
     }).filter((position) => {
         const orderbookExists = Exchange.markets.markets[position.marketIndex].orderbook[position.position.toNumber() < 0 ? 'asks' : 'bids'][0] !== undefined;
         
-        console.log(orderbookExists, Exchange.markets.markets[position.marketIndex].strike, position.position.toNumber());
+        // console.log(orderbookExists, Exchange.markets.markets[position.marketIndex].strike, position.position.toNumber());
         // filter out the non liquidatable positions
         return position.position.toNumber() != 0 && Exchange.markets.markets[position.marketIndex].expirySeries.isLive() && orderbookExists
     }).map((position) => {

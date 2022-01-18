@@ -117,9 +117,9 @@ const main = async () => {
     subscribeAllMarginAccounts()
     // check & subscribe for new margin accounts every minute
     setInterval(async () => {
-        console.clear();
+        // console.clear();
         subscribeAllMarginAccounts()
-    }, 60 * 1000)
+    }, 10 * 1000)
     setInterval(
         async () => {
             try {
@@ -142,16 +142,20 @@ const marginAccountMap : Map<string, anchor.ProgramAccount> = new Map<string, an
 export function subscribeAllMarginAccounts() {
 
     console.log(`Scanning margin accounts...`);
+    // console.log(process.memoryUsage().heapUsed / process.memoryUsage().heapTotal)
     Exchange.program.account.marginAccount.all().then((marginAccounts: anchor.ProgramAccount[]) => {
         marginAccounts.forEach(marginAccount => {
             if (!marginAccountMap.has(marginAccount.publicKey.toBase58())) {
                 marginAccountMap.set(marginAccount.publicKey.toBase58(), marginAccount);
+                Exchange.program.account.marginAccount.subscribe(marginAccountMap.get(marginAccount.publicKey.toBase58()).publicKey).on('change', (data) => {
+                  // console.log(data);
+                    // console.log('margin account', marginAccount.publicKey.toBase58(), ' changed');
+                    marginAccountMap.set(marginAccount.publicKey.toBase58(), { publicKey: marginAccount.publicKey, account: data });
+                })
             }
-            Exchange.program.account.marginAccount.subscribe(marginAccountMap.get(marginAccount.publicKey.toBase58()).publicKey).on('change', (data) => {
-                // console.log('margin account', marginAccount.publicKey.toBase58(), ' changed');
-                marginAccountMap.set(marginAccount.publicKey.toBase58(), { publicKey: marginAccountMap.get(marginAccount.publicKey.toBase58()).publicKey, account: { ...marginAccountMap.get(marginAccount.publicKey.toBase58()).account, ...data}});
-            })
+            
         })
+        // console.log(process.memoryUsage().heapUsed / process.memoryUsage().heapTotal)
     });
 
 }
@@ -170,7 +174,7 @@ export function subscribeAllMarginAccounts() {
     
     scanning = true;
   
-    let liquidatableAccounts = await findAccountsForLiquidation([...marginAccountMap.values()]);
+    const liquidatableAccounts = await findAccountsForLiquidation([...marginAccountMap.values()]);
     if (liquidatableAccounts.length == 0) {
       scanning = false;
       return;
@@ -178,7 +182,7 @@ export function subscribeAllMarginAccounts() {
         console.log(liquidatableAccounts.length, " accounts at risk.");
     }
   
-    await liquidateAccounts(client, liquidatableAccounts);
+    const liquidatedAccounts = await liquidateAccounts(client, liquidatableAccounts);
     // Display the latest client state.
     await client.updateState();
 
