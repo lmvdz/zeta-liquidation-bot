@@ -51,10 +51,12 @@ try {
     }
 }
 
-const PROGRAM_ID = new PublicKey('ZETAxsqBRek56DhiGXrn75yj2NHU3aYUnxvHXpkf3aD');
+const MAINNET = false;
+
+const PROGRAM_ID = MAINNET ? new PublicKey('ZETAxsqBRek56DhiGXrn75yj2NHU3aYUnxvHXpkf3aD') : new PublicKey('BG3oRikW8d16YjUEmX3ZxHm9SiJzrGtMhsSR8aCw1Cd7')
 
 
-const connection = new Connection(process.env.ENDPOINT_URL, utils.defaultCommitment());
+const connection = new Connection(MAINNET ? process.env.ENDPOINT_URL : process.env.DEVNET_ENDPOINT_URL, { commitment: "processed" });
 const wallet = new Wallet(keypair);
 
 let scanning: boolean = false;
@@ -64,9 +66,9 @@ let scanning: boolean = false;
 const main = async () => {
     await Exchange.load(
         PROGRAM_ID,
-        Network.MAINNET,
+        MAINNET ? Network.MAINNET : Network.DEVNET,
         connection,
-        utils.defaultCommitment(),
+        { commitment: "processed" },
         undefined, // Exchange wallet can be ignored for normal clients.
         0, // ThrottleMs - increase if you are running into rate limit issues on startup.
         undefined // Callback - See below for more details.
@@ -74,7 +76,7 @@ const main = async () => {
     const client = await Client.load(
         connection,
         wallet, // Use the loaded wallet.
-        utils.defaultCommitment(),
+        { commitment: "processed" },
         undefined // Callback - See below for more details.
     )
     console.log('margin acc balance: ', client.marginAccount.balance.toNumber() / (10 ** 6))
@@ -116,8 +118,8 @@ export function subscribeAllMarginAccounts() {
                 marginAccountMap.set(marginAccount.publicKey.toBase58(), { publicKey: marginAccountMap.get(marginAccount.publicKey.toBase58()).publicKey, account: { ...marginAccountMap.get(marginAccount.publicKey.toBase58()).account, ...data}});
             })
         })
-        console.log(`${marginAccountMap.size} margin accounts.`);
     });
+
 }
 
 
@@ -136,7 +138,6 @@ export function subscribeAllMarginAccounts() {
   
     let liquidatableAccounts = await findAccountsForLiquidation([...marginAccountMap.values()]);
     if (liquidatableAccounts.length == 0) {
-      
       scanning = false;
       return;
     } else {

@@ -24,7 +24,7 @@ export async function findAccountsForLiquidation(accounts: anchor.ProgramAccount
       if (adjustedAvailableBalance >= 0) {
         return;
       }
-      
+
       accountsForLiquidation.push(account);
     })
   );
@@ -65,6 +65,8 @@ export async function liquidateAccount(client: Client, programAccount: anchor.Pr
     const liquidateeMarginAccount = (programAccount.account as programTypes.MarginAccount);
     const liquidateeKey = programAccount.publicKey;
 
+    // await cancelActiveOrders(client, programAccount);
+
     // update the state of the client with newest available margin
     await client.updateState()
 
@@ -77,7 +79,9 @@ export async function liquidateAccount(client: Client, programAccount: anchor.Pr
         return { ...position, marketIndex: index}
     }).filter((position) => {
         // filter out the non liquidatable positions
-        return position.position.toNumber() != 0 && Exchange.markets.markets[position.marketIndex].expirySeries.isLive()
+        console.log(Exchange.markets.markets[position.marketIndex].expirySeries.isLive());
+        console.log(Exchange.markets.markets[position.marketIndex].orderbook);
+        return position.position.toNumber() != 0 && Exchange.markets.markets[position.marketIndex].expirySeries.isLive() && Exchange.markets.markets[position.marketIndex].orderbook[position.position.toNumber() < 0 ? 'asks' : 'bids'][0]
     }).map((position) => {
         // the market's orderbook associated with the liquidatee's position
         const orderbook = Exchange.markets.markets[position.marketIndex].orderbook;
@@ -111,6 +115,7 @@ export async function liquidateAccount(client: Client, programAccount: anchor.Pr
         // sort by liquidation size for max $$
         return a.liquidationSize - b.liquidationSize
     }).map(async (position) => {
+        console.log('liquidating ' + liquidateeKey.toBase58())
         // create the transaction
         let transaction = new Transaction();
         // liquidate transaction
@@ -134,6 +139,7 @@ export async function liquidateAccount(client: Client, programAccount: anchor.Pr
 
 export async function liquidateAccounts(client: Client, programAccounts: anchor.ProgramAccount[]) : Promise<Array<Array<string>>> {
     return await Promise.all(programAccounts.map( async programAccount => {
+        console.log(programAccount.publicKey.toString())
         return await liquidateAccount(client, programAccount);
     }))
 }
