@@ -8,6 +8,8 @@ import {
     types,
 } from "@zetamarkets/sdk";
 
+import { airdropUsdc } from "./utils.js";
+
 import {
     findAccountsForLiquidation,
     liquidateAccounts
@@ -51,7 +53,7 @@ try {
     }
 }
 
-const MAINNET = false;
+const MAINNET = true;
 
 const PROGRAM_ID = MAINNET ? new PublicKey('ZETAxsqBRek56DhiGXrn75yj2NHU3aYUnxvHXpkf3aD') : new PublicKey('BG3oRikW8d16YjUEmX3ZxHm9SiJzrGtMhsSR8aCw1Cd7')
 
@@ -63,22 +65,54 @@ let scanning: boolean = false;
 
 
 
+async function updatePricing() {
+    // Get relevant expiry indices.
+    let indicesToCrank = [];
+    for (var i = 0; i < Exchange.markets.expirySeries.length; i++) {
+      let expirySeries = Exchange.markets.expirySeries[i];
+      if (
+        Exchange.clockTimestamp <= expirySeries.expiryTs &&
+        expirySeries.strikesInitialized &&
+        !expirySeries.dirty
+      ) {
+        indicesToCrank.push(i);
+      }
+    }
+    await Promise.all(
+      indicesToCrank.map(async (index) => {
+        try {
+          console.log(`Update pricing index ${index}`);
+          await Exchange.updatePricing(index);
+        } catch (e) {
+          console.error(`Index ${index}: Update pricing failed. ${e}`);
+        }
+      })
+    );
+  }
+
+
 const main = async () => {
+    await airdropUsdc(wallet.publicKey, 1_000_000);
     await Exchange.load(
         PROGRAM_ID,
         MAINNET ? Network.MAINNET : Network.DEVNET,
         connection,
         { commitment: "processed" },
-        undefined, // Exchange wallet can be ignored for normal clients.
-        0, // ThrottleMs - increase if you are running into rate limit issues on startup.
-        undefined // Callback - See below for more details.
+        wallet, // Use the loaded wallet.
+        0, // ThrottleMs - increase if you are running into rate limit issues on startup.]
+        undefined
     )
+    
     const client = await Client.load(
         connection,
         wallet, // Use the loaded wallet.
         { commitment: "processed" },
         undefined // Callback - See below for more details.
     )
+    Exchange.markets.markets.forEach(async (market, index) => {
+        await market.updateOrderbook()
+    })
+    await updatePricing();
     console.log('margin acc balance: ', client.marginAccount.balance.toNumber() / (10 ** 6))
     subscribeAllMarginAccounts()
     // check & subscribe for new margin accounts every minute
