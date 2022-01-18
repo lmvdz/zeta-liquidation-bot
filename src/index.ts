@@ -9,10 +9,8 @@ import {
 } from "@zetamarkets/sdk";
 
 import {
-    cancelAllActiveOrders,
-    findAccountsAtRisk,
-    findLiquidatableAccounts,
-    liquidateAccountsV2,
+    findAccountsForLiquidation,
+    liquidateAccounts
 } from "./liquidator-utils.js";
 
 import * as anchor from "@project-serum/anchor";
@@ -81,6 +79,7 @@ const main = async () => {
     )
     console.log('margin acc balance: ', client.marginAccount.balance.toNumber() / (10 ** 6))
     subscribeAllMarginAccounts()
+    // check & subscribe for new margin accounts every minute
     setInterval(async () => {
         console.clear();
         subscribeAllMarginAccounts()
@@ -99,9 +98,14 @@ const main = async () => {
     );
 }
 
+// hold all margin accounts in memory, no need to get them every time we check.
+
 const marginAccountMap : Map<string, anchor.ProgramAccount> = new Map<string, anchor.ProgramAccount>();
 
+// subscribe to margin account updates
 export function subscribeAllMarginAccounts() {
+
+    console.log(`Scanning margin accounts...`);
     Exchange.program.account.marginAccount.all().then((marginAccounts: anchor.ProgramAccount[]) => {
         marginAccounts.forEach(marginAccount => {
             if (!marginAccountMap.has(marginAccount.publicKey.toBase58())) {
@@ -112,6 +116,7 @@ export function subscribeAllMarginAccounts() {
                 marginAccountMap.set(marginAccount.publicKey.toBase58(), { publicKey: marginAccountMap.get(marginAccount.publicKey.toBase58()).publicKey, account: { ...marginAccountMap.get(marginAccount.publicKey.toBase58()).account, ...data}});
             })
         })
+        console.log(`${marginAccountMap.size} margin accounts.`);
     });
 }
 
@@ -126,29 +131,22 @@ export function subscribeAllMarginAccounts() {
     if (scanning) {
       return;
     }
-    // console.log(`Scanning margin accounts...`);
+    
     scanning = true;
-    // console.log(`${marginAccountMap.size} margin accounts.`);
   
-    let accountsAtRisk = await findAccountsAtRisk([...marginAccountMap.values()]);
-    if (accountsAtRisk.length == 0) {
-    //   console.log("No accounts at risk.");
+    let liquidatableAccounts = await findAccountsForLiquidation([...marginAccountMap.values()]);
+    if (liquidatableAccounts.length == 0) {
+      
       scanning = false;
       return;
+    } else {
+        console.log(liquidatableAccounts.length, " accounts at risk.");
     }
   
-    // We need to cancel all orders on accounts that are at risk
-    // before we are able to liquidate them.
-    await cancelAllActiveOrders(client, accountsAtRisk);
-  
-    // Liquidate the accounts that are under water exclusive of initial
-    // margin as cancelling active orders reduces initial margin to 0.
-    let liquidatableAccounts: anchor.ProgramAccount[] =
-      await findLiquidatableAccounts(accountsAtRisk);
-  
-    await liquidateAccountsV2(client, liquidatableAccounts);
+    await liquidateAccounts(client, liquidatableAccounts);
     // Display the latest client state.
     await client.updateState();
+
     let clientMarginAccountState = Exchange.riskCalculator.getMarginAccountState(
       client.marginAccount
     );

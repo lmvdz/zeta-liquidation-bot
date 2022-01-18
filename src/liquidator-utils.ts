@@ -3,78 +3,43 @@ import { Transaction } from "@solana/web3.js";
 import { constants, Client, Exchange, programTypes, utils, instructions } from "@zetamarkets/sdk";
 import { Side } from "@zetamarkets/sdk/dist/types.js";
 
-export async function findAccountsAtRisk(
-  accounts: anchor.ProgramAccount[]
-): Promise<anchor.ProgramAccount[]> {
-  let accountsAtRisk: anchor.ProgramAccount[] = [];
+
+export async function findAccountsForLiquidation(accounts: anchor.ProgramAccount[]) {
+  let accountsForLiquidation: anchor.ProgramAccount[] = [];
   await Promise.all(
     accounts.map((account: anchor.ProgramAccount) => {
       if (account.account == null) {
         return;
       }
+
       let marginAccountState = Exchange.riskCalculator.getMarginAccountState(
         account.account as programTypes.MarginAccount
       );
+
       if (marginAccountState.availableBalance >= 0) {
         return;
       }
-      console.log(
-        `[ACCOUNT_AT_RISK] [ACCOUNT]: ${account.publicKey.toString()} [BALANCE]: ${
-          marginAccountState.balance
-        } [INITIAL] ${marginAccountState.initialMargin} [MAINTENANCE]: ${
-          marginAccountState.maintenanceMargin
-        } [TOTAL] ${marginAccountState.totalMargin} [UNREALIZED PNL] ${
-          marginAccountState.unrealizedPnl
-        } [AVAILABLE BALANCE] ${marginAccountState.availableBalance}`
-      );
-      accountsAtRisk.push(account);
-    })
-  );
-  return accountsAtRisk;
-}
 
-export async function findLiquidatableAccounts(
-  accounts: anchor.ProgramAccount[]
-): Promise<anchor.ProgramAccount[]> {
-  let liquidatableAccounts: anchor.ProgramAccount[] = [];
-  await Promise.all(
-    accounts.map((account: anchor.ProgramAccount) => {
-      if (account.account == null) {
-        return;
-      }
-
-      let marginAccountState = Exchange.riskCalculator.getMarginAccountState(
-        account.account as programTypes.MarginAccount
-      );
-
-      // We assume the accounts passed in have had their open orders cancelled.
-      // Therefore we can add back the initial margin calculated from their
-      // current margin account state.
-      let adjustedAvailableBalance =
-        marginAccountState.availableBalance + marginAccountState.initialMargin;
+      let adjustedAvailableBalance = marginAccountState.availableBalance + marginAccountState.initialMargin;
       if (adjustedAvailableBalance >= 0) {
         return;
       }
-      console.log(
-        `[LIQUIDATABLE ACCOUNT] [ACCOUNT] ${account.publicKey.toString()} [BALANCE] ${
-          marginAccountState.balance
-        } [ADJUSTED AVAILABLE BALANCE] ${adjustedAvailableBalance}`
-      );
-      liquidatableAccounts.push(account);
+      
+      accountsForLiquidation.push(account);
     })
   );
-  return liquidatableAccounts;
+  return accountsForLiquidation;
 }
 
 export async function cancelActiveOrders(client: Client, accountAtRisk: anchor.ProgramAccount) : Promise<Array<string>> {
     let marginAccount = accountAtRisk.account as programTypes.MarginAccount;
 
-    return Promise.all(marginAccount.positions.filter(position => {
+    return await Promise.all(marginAccount.positions.filter(position => {
         return position.openingOrders[0].toNumber() != 0 ||
         position.openingOrders[1].toNumber() != 0 ||
         position.closingOrders.toNumber() != 0;
     }).map(async (_, index) => {
-        let output;
+        let output : string;
         try {
             output = await client.forceCancelOrders(
                 Exchange.markets.markets[index].address,
@@ -85,37 +50,13 @@ export async function cancelActiveOrders(client: Client, accountAtRisk: anchor.P
         }
         return output;
     }));
-
-    //   for (var i = 0; i < marginAccount.positions.length; i++) {
-    //     // If they have any active orders, we can cancel.
-    //     let position = marginAccount.positions[i];
-    //     if (
-          
-    //     ) {
-    //       console.log(
-    //         "[FORCE_CANCEL] " +
-    //         accountAtRisk.publicKey.toString() +
-    //           " [KIND] " +
-    //           Exchange.markets.markets[i].kind +
-    //           " [STRIKE] " +
-    //           Exchange.markets.markets[i].strike +
-    //           " [EXPIRY] " +
-    //           new Date(Exchange.markets.markets[i].expirySeries.expiryTs * 1000)
-    //       );
-    //       try {
-    //         await 
-    //       } catch (e) {
-    //         console.log(e);
-    //       }
-    //     }
-    //   }
 }
 
 export async function cancelAllActiveOrders(
   client: Client,
   accountsAtRisk: anchor.ProgramAccount[]
 ) : Promise<Array<Array<string>>> {
-    return Promise.all(accountsAtRisk.map(async (accountAtRisk) => {
+    return await Promise.all(accountsAtRisk.map(async (accountAtRisk) => {
       return await cancelActiveOrders(client, accountAtRisk);
     }))
 }
@@ -131,7 +72,7 @@ export async function liquidateAccount(client: Client, programAccount: anchor.Pr
         client.marginAccount
     );
 
-    return Promise.all(liquidateeMarginAccount.positions.map((position, index) => {
+    return await Promise.all(liquidateeMarginAccount.positions.map((position, index) => {
         // add marketIndex to position before we filter, messing up the indexes
         return { ...position, marketIndex: index}
     }).filter((position) => {
@@ -180,98 +121,22 @@ export async function liquidateAccount(client: Client, programAccount: anchor.Pr
         let closePositionIx = instructions.placeOrderIx(position.marketIndex, utils.convertDecimalToNativeInteger(position.firstOrderInBook.price), position.liquidationSize, position.closePositionSide, 0, client.marginAccountAddress, client.publicKey, client.openOrdersAccounts[position.marketIndex], client.whiteListTradingFeesAddress)
         transaction.add(closePositionIx);
         // send the liquidation + close position transaction
-        let output;
+        let output : string;
         try {
             output = await utils.processTransaction(client.provider, transaction);
         } catch ( error ) {
-            output = error
+            output = error.toString()
         }
         return output;
     }));
 }
 
 
-export async function liquidateAccountsV2(client: Client, programAccounts: anchor.ProgramAccount[]) : Promise<Array<Array<string>>> {
-    return Promise.all(programAccounts.map( async programAccount => {
+export async function liquidateAccounts(client: Client, programAccounts: anchor.ProgramAccount[]) : Promise<Array<Array<string>>> {
+    return await Promise.all(programAccounts.map( async programAccount => {
         return await liquidateAccount(client, programAccount);
     }))
 }
-
-
-// Naively liquidates all accounts up to initial margin requirement limits.
-// export async function liquidateAccounts(
-//   client: Client,
-//   accounts: anchor.ProgramAccount[]
-// ) {
-//   for (var i = 0; i < accounts.length; i++) {
-//     const liquidateeMarginAccount = accounts[i]
-//       .account as programTypes.MarginAccount;
-//     const liquidateeKey = accounts[i].publicKey;
-
-//     for (
-//       var marketIndex = 0;
-//       marketIndex < liquidateeMarginAccount.positions.length;
-//       marketIndex++
-//     ) {
-//       const position =
-//         liquidateeMarginAccount.positions[marketIndex].position.toNumber();
-
-//       // Cannot liquidate a position on an expired market.
-//       if (
-//         position == 0 ||
-//         !Exchange.markets.markets[marketIndex].expirySeries.isLive()
-//       ) {
-//         continue;
-//       }
-
-//       // Get latest state for your margin account.
-//       await client.updateState();
-//       let clientState = Exchange.riskCalculator.getMarginAccountState(
-//         client.marginAccount
-//       );
-
-//       let marginConstrainedSize = calculateMaxLiquidationNativeSize(
-//         clientState.availableBalance,
-//         marketIndex,
-//         position > 0
-//       );
-
-//       const size = Math.min(marginConstrainedSize, Math.abs(position));
-//       const side = position > 0 ? "Bid" : "Ask";
-
-//       console.log(
-//         "[LIQUIDATE] " +
-//           liquidateeKey.toString() +
-//           " [KIND] " +
-//           Exchange.markets.markets[marketIndex].kind +
-//           " [STRIKE] " +
-//           Exchange.markets.markets[marketIndex].strike +
-//           " [EXPIRY] " +
-//           new Date(
-//             Exchange.markets.markets[marketIndex].expirySeries.expiryTs * 1000
-//           ) +
-//           " [SIDE] " +
-//           side +
-//           " [AMOUNT] " +
-//           size +
-//           " [MAX CAPACITY WITH MARGIN] " +
-//           marginConstrainedSize +
-//           " [AVAILABLE SIZE] " +
-//           Math.abs(position)
-//       );
-//       try {
-//         let txId = await client.liquidate(
-//           Exchange.markets.markets[marketIndex].address,
-//           liquidateeKey,
-//           size
-//         );
-//         console.log(`TX ID: ${txId}`);
-//       } catch (e) {
-//         console.log(e);
-//       }
-//     }
-//   }
-// }
 
 /**
  * @param availableBalance  Available balance for the liquidator.
