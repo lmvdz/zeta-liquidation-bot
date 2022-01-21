@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@zetamarkets/sdk": "file:@zetamarkets/sdk",
+    "axios": "^0.25.0",
     "dotenv": "^14.1.0",
     "node-fetch": "^3.1.1"
   }

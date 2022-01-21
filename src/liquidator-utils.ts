@@ -4,6 +4,16 @@ import { constants, Client, Exchange, programTypes, utils, instructions, Market 
 import { Side } from "@zetamarkets/sdk/dist/types.js";
 
 
+import { config } from 'dotenv';
+
+config({path: './.env.local'});
+
+const MARGIN_CONSUMPTION_CAP = parseInt(process.env.MARGIN_CONSUMPTION_CAP) / 100
+
+if (MARGIN_CONSUMPTION_CAP > 1 || MARGIN_CONSUMPTION_CAP <= 0) {
+  console.error('MARGIN_CONSUMPTION_CAP needs to be between (0,100]')
+}
+
 export async function findAccountsForLiquidation(accounts: anchor.ProgramAccount[]) {
   let accountsForLiquidation: anchor.ProgramAccount[] = [];
   await Promise.all(
@@ -70,61 +80,61 @@ export async function cancelAllActiveOrders(
 }
 
 
-function getMarketsToCrank(liveOnly: boolean): Market[] {
-  let marketsToCrank = [];
-  if (liveOnly) {
-    let liveExpiryIndices = Exchange.markets.getTradeableExpiryIndices();
-    liveExpiryIndices.map(async (index) => {
-      marketsToCrank.push(Exchange.markets.getMarketsByExpiryIndex(index));
-    });
-    marketsToCrank = marketsToCrank.flat(1);
-  } else {
-    marketsToCrank = Exchange.markets.markets;
-  }
-  return marketsToCrank;
-}
+// function getMarketsToCrank(liveOnly: boolean): Market[] {
+//   let marketsToCrank = [];
+//   if (liveOnly) {
+//     let liveExpiryIndices = Exchange.markets.getTradeableExpiryIndices();
+//     liveExpiryIndices.map(async (index) => {
+//       marketsToCrank.push(Exchange.markets.getMarketsByExpiryIndex(index));
+//     });
+//     marketsToCrank = marketsToCrank.flat(1);
+//   } else {
+//     marketsToCrank = Exchange.markets.markets;
+//   }
+//   return marketsToCrank;
+// }
 
 
-let crankingMarkets = new Array(constants.ACTIVE_MARKETS).fill(false);
+// let crankingMarkets = new Array(constants.ACTIVE_MARKETS).fill(false);
 
 
-async function crankExchange(liveOnly: boolean) {
-  let marketsToCrank: Market[] = getMarketsToCrank(liveOnly);
-  marketsToCrank.map(async (market) => {
-    let eventQueue = await market.serumMarket.loadEventQueue(
-      Exchange.provider.connection
-    );
+// async function crankExchange(liveOnly: boolean) {
+//   let marketsToCrank: Market[] = getMarketsToCrank(liveOnly);
+//   marketsToCrank.map(async (market) => {
+//     let eventQueue = await market.serumMarket.loadEventQueue(
+//       Exchange.provider.connection
+//     );
 
-    if (eventQueue.length > 0 && !crankingMarkets[market.marketIndex]) {
-      crankingMarkets[market.marketIndex] = true;
-      try {
-        while (eventQueue.length != 0) {
-          try {
-            await utils.crankMarket(market.marketIndex);
-          } catch (e) {
-            console.error(
-              `Cranking failed on market ${market.marketIndex}, ${e}`
-            );
-          }
+//     if (eventQueue.length > 0 && !crankingMarkets[market.marketIndex]) {
+//       crankingMarkets[market.marketIndex] = true;
+//       try {
+//         while (eventQueue.length != 0) {
+//           try {
+//             await utils.crankMarket(market.marketIndex);
+//           } catch (e) {
+//             console.error(
+//               `Cranking failed on market ${market.marketIndex}, ${e}`
+//             );
+//           }
 
-          let currLength = eventQueue.length;
+//           let currLength = eventQueue.length;
 
-          eventQueue = await market.serumMarket.loadEventQueue(
-            Exchange.provider.connection
-          );
+//           eventQueue = await market.serumMarket.loadEventQueue(
+//             Exchange.provider.connection
+//           );
 
-          let numCranked = currLength - eventQueue.length;
-          console.log(
-            `Cranked ${numCranked} events for market ${market.marketIndex}`
-          );
-        }
-      } catch (e) {
-        console.error(`${e}`);
-      }
-      crankingMarkets[market.marketIndex] = false;
-    }
-  });
-}
+//           let numCranked = currLength - eventQueue.length;
+//           console.log(
+//             `Cranked ${numCranked} events for market ${market.marketIndex}`
+//           );
+//         }
+//       } catch (e) {
+//         console.error(`${e}`);
+//       }
+//       crankingMarkets[market.marketIndex] = false;
+//     }
+//   });
+// }
 
 export async function liquidateAccount(client: Client, programAccount: anchor.ProgramAccount) : Promise<Array<string>> {
     const liquidateeMarginAccount = (programAccount.account as programTypes.MarginAccount);
@@ -142,26 +152,29 @@ export async function liquidateAccount(client: Client, programAccount: anchor.Pr
         // add marketIndex to position before we filter, messing up the indexes
         return { ...position, marketIndex: index }
     }).filter((position) => {
-        const orderbookExists = Exchange.markets.markets[position.marketIndex].orderbook[position.position.toNumber() < 0 ? 'asks' : 'bids'][0] !== undefined;
-        
+        const market = Exchange.markets.markets[position.marketIndex];
+        const topLevel = market.orderbook[(position.position.toNumber() < 0 ? 'asks' : 'bids')][0];
+        const orderbookExists =  topLevel !== undefined && topLevel !== null;
+        console.log(topLevel)
         // console.log(orderbookExists, Exchange.markets.markets[position.marketIndex].strike, position.position.toNumber());
         // filter out the non liquidatable positions
         return position.position.toNumber() != 0 && Exchange.markets.markets[position.marketIndex].expirySeries.isLive() && orderbookExists
     }).map((position) => {
+        const market = Exchange.markets.markets[position.marketIndex];
         // the market's orderbook associated with the liquidatee's position
-        const orderbook = Exchange.markets.markets[position.marketIndex].orderbook;
+        const orderbook = market.orderbook;
         // the side of the liquidatee's position
         const side = position.position.toNumber() > 0 ? "Bid" : "Ask";
         // the close position order side
         const closePositionSide = (side === 'Bid' ? Side.ASK : Side.BID);
         // the first order in the orderbook which we will use to close the position instantly
-        const firstOrderInBook = orderbook[side === 'Ask' ? 'asks' : 'bids'][0];
+        const firstOrderInBook = orderbook[(side === 'Ask' ? 'asks' : 'bids')][0];
         // the amount of margin the liquidator has available
         const marginConstrainedSize = calculateMaxLiquidationNativeSize(
             clientState.availableBalance,
             position.marketIndex,
             position.position.toNumber() > 0
-        );
+        ) * MARGIN_CONSUMPTION_CAP;
 
         // take the smallest of the three
         // first order in book
@@ -177,6 +190,7 @@ export async function liquidateAccount(client: Client, programAccount: anchor.Pr
 
         return {
             ...position, 
+            market,
             marginConstrainedSize, 
             orderbook,
             side,
@@ -192,7 +206,7 @@ export async function liquidateAccount(client: Client, programAccount: anchor.Pr
         if (position.possibleProfit <= 0) {
           return 'possible profit negative';
         }
-        console.log('liquidating ' + liquidateeKey.toBase58(), 'for ' + position.possibleProfit)
+        console.log('liquidating ' + liquidateeKey.toBase58(), '\'s ' + position.market.strike + ' ' + position.side + ' of '  + position.liquidationSize + 'x for possible profit of ' + position.possibleProfit)
         // create the transaction
         let transaction = new Transaction();
         // liquidate transaction
@@ -207,13 +221,24 @@ export async function liquidateAccount(client: Client, programAccount: anchor.Pr
         }
         let closePositionIx = instructions.placeOrderIx(position.marketIndex, utils.convertDecimalToNativeInteger(position.firstOrderInBook.price), position.liquidationSize, position.closePositionSide, 0, client.marginAccountAddress, client.publicKey, client.openOrdersAccounts[position.marketIndex], client.whiteListTradingFeesAddress)
         transaction.add(closePositionIx);
-        // send the liquidation + close position transaction
+        // send the liquidation + create open order accounts (optional) + close position transaction
         let output : string;
         try {
             output = await utils.processTransaction(client.provider, transaction);
         } catch ( error ) {
             output = error.toString()
+            // did we try to create open order accounts 
+            if (transaction.instructions.length === 3) {
+              // reset open order accounts for the market index
+              client.openOrdersAccounts[position.marketIndex] = PublicKey.default
+            }
         }
+        let clientMarginAccountState = Exchange.riskCalculator.getMarginAccountState(
+          client.marginAccount
+        );
+        console.log(
+          `Client margin account state: ${JSON.stringify(clientMarginAccountState)}`
+        );
         return output;
     }));
 }
@@ -222,7 +247,6 @@ export async function liquidateAccount(client: Client, programAccount: anchor.Pr
 export async function liquidateAccounts(client: Client, programAccounts: anchor.ProgramAccount[]) : Promise<Array<Array<string>>> {
     return await Promise.all(programAccounts.map( async programAccount => {
         const liquidate = await liquidateAccount(client, programAccount);
-        console.log(liquidate);
         // await crankExchange(true);
         return liquidate;
     }))
