@@ -252,6 +252,7 @@ const mainLoop = () => {
 try {
   mainLoop();
 } catch (error) {
+  console.error(error);
   if (error.type === 'system' && error.code === 'ETIMEDOUT') {
     process.exit(1);
   }
